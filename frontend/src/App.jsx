@@ -1,52 +1,49 @@
-import React, { Suspense, lazy } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { Suspense, lazy, useState } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/UI/ProtectedRoute';
 
-// Lazily import page components for code-splitting
-const LoginPage = lazy(() => import('./pages/Auth/AuthPages').then(module => ({ default: module.LoginPage })));
-const RegisterPage = lazy(() => import('./pages/Auth/AuthPages').then(module => ({ default: module.RegisterPage })));
+// Lazy load other pages
+const LandingPage = lazy(() => import('./pages/LandingPage'));
 const DashboardLayout = lazy(() => import('./pages/Dashboard/DashboardLayout'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
+const AuthPage = lazy(() => import('./pages/Auth/AuthPages')); // Single AuthPage for login/register
 
-// A simple loading component to show while pages are being fetched
+// Loading fallback component
 const LoadingFallback = () => (
-    <div className="flex h-screen items-center justify-center bg-gray-100">
-        <p className="text-xl text-gray-600">Loading...</p>
-    </div>
+  <div className="flex h-screen items-center justify-center bg-gray-100">
+    <p className="text-xl text-gray-600">Loading...</p>
+  </div>
 );
 
 const App = () => {
-    return (
-        <Router>
-            <AuthProvider>
-                {/* Suspense provides a fallback UI while lazy-loaded components are loading */}
-                <Suspense fallback={<LoadingFallback />}>
-                    <Routes>
-                        {/* Public Routes */}
-                        <Route path="/login" element={<LoginPage />} />
-                        <Route path="/register" element={<RegisterPage />} />
-                        
-                        {/* Protected Dashboard Route */}
-                        <Route
-                            path="/dashboard/*"
-                            element={
-                                <ProtectedRoute>
-                                    <DashboardLayout />
-                                </ProtectedRoute>
-                            }
-                        />
+  return (
+    <Router>
+      <AuthProvider>
+        <Suspense fallback={<LoadingFallback />}>
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/login" element={<AuthPage view="login" />} />
+            <Route path="/register" element={<AuthPage view="register" />} />
 
-                        {/* Root path redirects to the dashboard (ProtectedRoute will handle auth check) */}
-                        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                        
-                        {/* Catch-all 404 Route */}
-                        <Route path="*" element={<NotFoundPage />} />
-                    </Routes>
-                </Suspense>
-            </AuthProvider>
-        </Router>
-    );
+            {/* Protected Dashboard Route */}
+            <Route
+              path="/dashboard/*"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Catch-all 404 */}
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+        </Suspense>
+      </AuthProvider>
+    </Router>
+  );
 };
 
 export default App;
