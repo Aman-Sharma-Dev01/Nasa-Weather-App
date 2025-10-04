@@ -5,7 +5,10 @@ const path = require('path');
 const { parse } = require('json2csv'); 
 
 // Mock/Placeholder for specific NASA data endpoints
+// NOTE: The keys are friendly names used in the request body, 
+// while the 'variable' field holds the corresponding NASA short code.
 const NASA_DATA_CONFIG = {
+    // EXISTING VARIABLES
     temperature: {
         variable: 'AirTemp_Mean',
         unit: 'K',
@@ -18,11 +21,32 @@ const NASA_DATA_CONFIG = {
         source: 'Giovanni_TRMM_Dataset',
         endpoint: process.env.DATA_BASE_URL + '/TRMM/Rainfall_Rate'
     },
+    // UPDATED WIND SPEED (using WS10M code)
     windspeed: {
-        variable: 'Wind_Speed_10m',
+        variable: 'WS10M',
         unit: 'm/s',
         source: 'Worldview_Dataset_ABC',
-        endpoint: process.env.DATA_BASE_URL + '/ABC/Wind_Speed_10m'
+        endpoint: process.env.DATA_BASE_URL + '/ABC/WS10M'
+    },
+    
+    // NEW VARIABLES ADDED BY REQUEST
+    solar_radiation: { // Corresponds to ALLSKY_KT
+        variable: 'ALLSKY_KT',
+        unit: 'unitless', // Clearness index is a ratio (0-1)
+        source: 'CERES_SYN_Dataset',
+        endpoint: process.env.DATA_BASE_URL + '/CERES/ALLSKY_KT'
+    },
+    relative_humidity: { // Corresponds to RH2M
+        variable: 'RH2M',
+        unit: '%',
+        source: 'MODIS_Atmosphere_Data',
+        endpoint: process.env.DATA_BASE_URL + '/MODIS/RH2M'
+    },
+    solar_insolation: { // Corresponds to ALLSKY_SFC_SW_DWN
+        variable: 'ALLSKY_SFC_SW_DWN',
+        unit: 'W/m^2',
+        source: 'CERES_SYN_Dataset',
+        endpoint: process.env.DATA_BASE_URL + '/CERES/ALLSKY_SFC_SW_DWN'
     }
 };
 
@@ -32,7 +56,6 @@ const NASA_DATA_CONFIG = {
  * @access Private (Requires User Auth)
  */
 exports.getWeatherForecast = async (req, res) => {
-    // Note: req.user.id is available here from the auth middleware
     const { 
         location, 
         dayOfYear,
@@ -47,7 +70,6 @@ exports.getWeatherForecast = async (req, res) => {
 
     const results = {};
     const dataForDownload = [];
-    // Ensure req.user exists before accessing id (though auth middleware should handle this)
     const userId = req.user ? req.user.id : 'anonymous'; 
     const downloadFileName = `nasa_weather_query_${userId}_${Date.now()}`;
 
@@ -57,32 +79,50 @@ exports.getWeatherForecast = async (req, res) => {
             if (!config) continue;
 
             // --- 2. Data Fetching (Simulated) ---
-            // Placeholder for historical data array (10 years for the given day/location)
-            const historicalData = Array.from({ length: 10 }, 
-                () => Math.random() * (varName === 'temperature' ? 50 : 10) + (varName === 'temperature' ? 273.15 : 0.5)); 
+            let historicalData = [];
+            
+            // Generate simulated data based on expected ranges for the variable
+            if (varName === 'temperature') {
+                 // Kelvin (273.15 is 0C, typically high 200s to low 300s)
+                historicalData = Array.from({ length: 10 }, () => Math.random() * 50 + 273.15); 
+            } else if (varName === 'precipitation' || varName === 'windspeed') {
+                // mm/hr or m/s (low values)
+                historicalData = Array.from({ length: 10 }, () => Math.random() * 10 + 0.5); 
+            } else if (varName === 'relative_humidity') {
+                // Percentage (20% to 80%)
+                historicalData = Array.from({ length: 10 }, () => Math.random() * 60 + 20); 
+            } else if (varName === 'solar_insolation') {
+                // W/m^2 (Typical peak is ~1000, simulating an average value)
+                historicalData = Array.from({ length: 10 }, () => Math.random() * 500 + 200);
+            } else if (varName === 'solar_radiation') {
+                // Unitless Clearness Index (0.3 to 0.8 is common)
+                historicalData = Array.from({ length: 10 }, () => Math.random() * 0.5 + 0.3);
+            }
             
             // --- 3. Statistical Computation ---
             const mean = historicalData.reduce((a, b) => a + b, 0) / historicalData.length;
             const threshold = thresholds.find(t => t.variable === varName);
             
-            let probabilityExceedingThreshold = 'N/A'; // Initialized as string
+            let probabilityExceedingThreshold = 'N/A';
             let simpleTextExplanation = `The average ${varName} for Day ${dayOfYear} at this location is **${mean.toFixed(2)} ${config.unit}**.`;
 
             if (threshold) {
-                // Convert threshold value to the base unit (Kelvin in this example) for comparison
-                const thresholdValueK = (threshold.unit === 'F') 
-                    ? (threshold.value - 32) * 5 / 9 + 273.15 
-                    : threshold.value;
+                // Convert threshold value to the base unit (K, m/s, %, etc.) for comparison
+                let thresholdValueBaseUnit = threshold.value;
+                if (varName === 'temperature' && threshold.unit === 'F') {
+                    // Farenheit to Kelvin conversion
+                    thresholdValueBaseUnit = (threshold.value - 32) * 5 / 9 + 273.15;
+                }
                 
-                const countExceeding = historicalData.filter(v => v > thresholdValueK).length;
+                const countExceeding = historicalData.filter(v => v > thresholdValueBaseUnit).length;
                 
                 // Assigns a number here
                 probabilityExceedingThreshold = (countExceeding / historicalData.length) * 100;
 
-                simpleTextExplanation += ` Historical data shows a **${probabilityExceedingThreshold.toFixed(0)}% chance** of exceeding the specified threshold (${threshold.value}°${threshold.unit}).`;
+                simpleTextExplanation += ` Historical data shows a **${probabilityExceedingThreshold.toFixed(0)}% chance** of exceeding the specified threshold (${threshold.value}°${threshold.unit || config.unit}).`;
             }
 
-            // --- 4. Prepare API Response and Download Data (FIX IMPLEMENTED HERE) ---
+            // --- 4. Prepare API Response and Download Data (FIX for .toFixed()) ---
 
             // Check if probability is a number before calling toFixed(0)
             const probabilityOutput = typeof probabilityExceedingThreshold === 'number'
@@ -92,7 +132,6 @@ exports.getWeatherForecast = async (req, res) => {
             results[varName] = {
                 mean: mean.toFixed(2),
                 unit: config.unit,
-                // Use the checked probability output
                 probabilityExceedingThreshold: probabilityOutput,
                 simpleExplanation: simpleTextExplanation,
                 visualSuggestion: `A time series graph of the past 10 years' ${varName} for Day ${dayOfYear} is recommended.`,
@@ -135,7 +174,6 @@ exports.getWeatherForecast = async (req, res) => {
         });
 
     } catch (err) {
-        // Log detailed error and send generic error response
         console.error('Data query error:', err.stack); 
         res.status(500).json({ msg: 'Server error during data processing.' });
     }
