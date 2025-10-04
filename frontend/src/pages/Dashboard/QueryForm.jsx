@@ -1,156 +1,217 @@
-import React, { useState } from 'react';
-import { useDashboard } from '../../context/DashboardContext';
-import { runWeatherQuery, createDashboard } from '../../api/apiService';
+import React, { useState, useEffect } from "react";
+import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import { GeoSearchControl, OpenStreetMapProvider } from "leaflet-geosearch";
+import 'leaflet-geosearch/dist/geosearch.css';
+import { useDashboard } from "../../context/DashboardContext";
+import { runWeatherQuery, createDashboard } from "../../api/apiService";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import L from "leaflet";
 
-// Define the available NASA variables and their default units for the UI
 const NASA_VARIABLES = [
-    { name: 'Temperature', key: 'temperature', unit: 'Fahrenheit / Kelvin' },
-    { name: 'Precipitation Rate', key: 'precipitation', unit: 'mm/hr' },
-    { name: 'Wind Speed (10m)', key: 'windspeed', unit: 'm/s' },
-    { name: 'Relative Humidity (2m)', key: 'relative_humidity', unit: '%' },
-    { name: 'Solar Insolation', key: 'solar_insolation', unit: 'W/m^2' },
-    { name: 'Solar Radiation', key: 'solar_radiation', unit: 'unitless' },
+    { name: "Temperature", key: "temperature", unit: "Fahrenheit / Kelvin" },
+    { name: "Precipitation Rate", key: "precipitation", unit: "mm/hr" },
+    { name: "Wind Speed (10m)", key: "windspeed", unit: "m/s" },
+    { name: "Relative Humidity (2m)", key: "relative_humidity", unit: "%" },
+    { name: "Solar Insolation", key: "solar_insolation", unit: "W/m^2" },
+    { name: "Solar Radiation", key: "solar_radiation", unit: "unitless" },
 ];
 
+// Custom icon for the map marker
+const customIcon = new L.Icon({
+    iconUrl: "https://cdn-icons-png.flaticon.com/512/64/64113.png",
+    iconSize: [30, 30],
+});
+
+/**
+ * A combined component to handle map interactions like clicking to set a marker
+ * and integrating the geosearch (address search) functionality.
+ */
+const MapEvents = ({ setCoords }) => {
+    const map = useMap();
+
+    // Handle map clicks to set coordinates and move the view
+    useMapEvents({
+        click(e) {
+            setCoords(e.latlng);
+            map.setView(e.latlng, map.getZoom()); // Makes the map "stick" to the clicked location
+        },
+    });
+
+    // Add search control functionality
+    useEffect(() => {
+        const provider = new OpenStreetMapProvider();
+        const searchControl = new GeoSearchControl({
+            provider,
+            style: 'bar',
+            showMarker: true,
+            autoClose: true,
+            keepResult: true,
+            searchLabel: 'Enter address',
+        });
+
+        map.addControl(searchControl);
+
+        const onShowLocation = (result) => {
+            const { x: lon, y: lat } = result.location;
+            setCoords({ lat, lng: lon });
+        };
+
+        map.on('geosearch/showlocation', onShowLocation);
+
+        // Cleanup function to remove control and event listener
+        return () => {
+            map.removeControl(searchControl);
+            map.off('geosearch/showlocation', onShowLocation);
+        };
+    }, [map, setCoords]);
+
+    return null;
+};
+
+
 const QueryForm = () => {
-    const { 
-        currentQuery, 
-        setCurrentQuery, 
-        setQueryResults, 
-        fetchSavedDashboards, 
-        initialQueryState 
-    } = useDashboard();
-    
+    const { currentQuery, setCurrentQuery, setQueryResults, fetchSavedDashboards } =
+    useDashboard();
     const [loading, setLoading] = useState(false);
-    const [message, setMessage] = useState('');
-    const [dashboardName, setDashboardName] = useState('');
-    const [thresholdInput, setThresholdInput] = useState({});
+    const [message, setMessage] = useState("");
+    
+    // --- MODIFICATIONS START ---
 
-    // --- State Handlers ---
-    const handleInputChange = (e) => {
-        const { name, value } = e.target;
-        setMessage('');
+    // Prefill dashboard name for the default location
+    const [dashboardName, setDashboardName] = useState("Faridabad - Full Weather Report");
+    
+    // Prefill all threshold inputs with average data
+    const [thresholdInput, setThresholdInput] = useState({
+        temperature: { value: "75" },        // Average temperate day in Fahrenheit
+        precipitation: { value: "0.5" },     // Light precipitation
+        windspeed: { value: "3" },           // Gentle breeze in m/s
+        relative_humidity: { value: "65" },  // Average humidity
+        solar_insolation: { value: "500" },   // Moderately sunny
+        solar_radiation: { value: "50" },     // Average unitless value
+    });
 
-        if (name === 'lat' || name === 'lon') {
-            setCurrentQuery(prev => {
-                // Defensive initialization of location if it's null/undefined
-                const location = prev.location || {}; 
-                
-                return {
-                    ...prev,
-                    location: {
-                        ...location, // Use the safely initialized or existing location object
-                        [name]: parseFloat(value) || 0,
-                    }
-                };
-            });
-        } else if (name === 'dayOfYear') {
-            setCurrentQuery(prev => ({
-                ...prev,
-                [name]: parseInt(value) || 1,
-            }));
-        }
+    // Default date to today
+    const [selectedDate, setSelectedDate] = useState(new Date());
+
+    // Set default query state on component mount
+    useEffect(() => {
+        const faridabadCoords = { lat: 28.4089, lon: 77.3178 };
+        // Select all variables by default
+        const defaultVariables = NASA_VARIABLES.map(v => v.key);
+        // Set thresholds for all variables
+        const defaultThresholds = [
+            { variable: "temperature", value: 75, unit: "F" },
+            { variable: "precipitation", value: 0.5, unit: "mm/hr" },
+            { variable: "windspeed", value: 3, unit: "m/s" },
+            { variable: "relative_humidity", value: 65, unit: "%" },
+            { variable: "solar_insolation", value: 500, unit: "W/m^2" },
+            { variable: "solar_radiation", value: 50, unit: "unitless" }
+        ];
+
+        setCurrentQuery(prev => ({
+            ...prev,
+            location: faridabadCoords,
+            variables: defaultVariables,
+            thresholds: defaultThresholds,
+        }));
+    }, [setCurrentQuery]); // Run only once on initial render
+
+    // --- MODIFICATIONS END ---
+
+    // Update lat/lon when user selects on map or search
+    const handleCoordsChange = (coords) => {
+        setCurrentQuery((prev) => ({
+            ...prev,
+            location: { lat: coords.lat, lon: coords.lng },
+        }));
     };
 
     const handleVariableToggle = (key) => {
-        setCurrentQuery(prev => {
-            const newVariables = prev.variables.includes(key)
-                ? prev.variables.filter(v => v !== key)
-                : [...prev.variables, key];
-
-            // Auto-remove thresholds for deselected variables
-            const newThresholds = prev.thresholds.filter(t => newVariables.includes(t.variable));
-
-            return {
-                ...prev,
-                variables: newVariables,
-                thresholds: newThresholds,
-            };
+        setCurrentQuery((prev) => {
+            const newVariables = prev.variables.includes(key) ?
+                prev.variables.filter((v) => v !== key) :
+                [...prev.variables, key];
+            const newThresholds = prev.thresholds.filter((t) =>
+                newVariables.includes(t.variable)
+            );
+            return { ...prev, variables: newVariables, thresholds: newThresholds };
         });
-        setMessage('');
+        setMessage("");
     };
 
     const handleThresholdChange = (key, value) => {
-        setThresholdInput(prev => ({
-            ...prev,
-            [key]: {
-                value: value,
-            }
-        }));
+        setThresholdInput((prev) => ({ ...prev, [key]: { value } }));
     };
 
     const handleAddThreshold = (key, unit) => {
         const inputData = thresholdInput[key];
-        
-        // Use a safe regex to extract the primary unit (e.g., 'Fahrenheit' from 'Fahrenheit / Kelvin')
-        const primaryUnit = unit.split('/')[0].trim();
-        const finalUnit = primaryUnit === 'Fahrenheit' ? 'F' : primaryUnit;
+        const primaryUnit = unit.split("/")[0].trim();
+        const finalUnit = primaryUnit === "Fahrenheit" ? "F" : primaryUnit;
 
-        if (!inputData || inputData.value === undefined || inputData.value === null || inputData.value === '') {
-            setMessage(`Please enter a valid numeric threshold value for ${key}.`);
+        if (!inputData?.value) {
+            setMessage(`Please enter a valid threshold for ${key}.`);
             return;
         }
 
         const newThreshold = {
             variable: key,
             value: parseFloat(inputData.value),
-            unit: finalUnit, 
+            unit: finalUnit,
         };
-
-        setCurrentQuery(prev => {
-            // Remove existing threshold for this variable, then add new one
-            const filteredThresholds = prev.thresholds.filter(t => t.variable !== key);
-            return {
-                ...prev,
-                thresholds: [...filteredThresholds, newThreshold]
-            };
-        });
-        setMessage(`Threshold added for ${key}: ${newThreshold.value} ${newThreshold.unit}.`);
+        setCurrentQuery((prev) => ({
+            ...prev,
+            thresholds: [
+                ...prev.thresholds.filter((t) => t.variable !== key),
+                newThreshold,
+            ],
+        }));
+        setMessage(
+            `Threshold added for ${key}: ${newThreshold.value} ${newThreshold.unit}.`
+        );
     };
 
     const handleRemoveThreshold = (key) => {
-        setCurrentQuery(prev => ({
+        setCurrentQuery((prev) => ({
             ...prev,
-            thresholds: prev.thresholds.filter(t => t.variable !== key),
+            thresholds: prev.thresholds.filter((t) => t.variable !== key),
         }));
         setMessage(`Threshold removed for ${key}.`);
     };
 
-    // --- API Calls ---
     const handleSubmitQuery = async (e) => {
         e.preventDefault();
-        
-        // --- UPDATED VALIDATION LOGIC ---
         if (currentQuery.variables.length === 0) {
-            setMessage('Please select at least one variable.');
+            setMessage("Please select at least one variable.");
             return;
         }
-        
-        // Check if lat/lon are missing or invalid
-        const lat = currentQuery.location?.lat;
-        const lon = currentQuery.location?.lon;
 
-        if (lat === null || lat === undefined || isNaN(lat) || lon === null || lon === undefined || isNaN(lon)) {
-             setMessage('Please enter valid, non-zero Latitude and Longitude values.');
-             return;
+        const { lat, lon } = currentQuery.location || {};
+        if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
+            setMessage("Please enter valid coordinates.");
+            return;
         }
-        // --- END UPDATED VALIDATION LOGIC ---
-        
+
+        // convert date to day of year
+        const start = new Date(selectedDate.getFullYear(), 0, 0);
+        const diff =
+            selectedDate - start + (start.getTimezoneOffset() - selectedDate.getTimezoneOffset()) * 60 * 1000;
+        const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+        setCurrentQuery((prev) => ({ ...prev, dayOfYear }));
+
         setLoading(true);
         setQueryResults(null);
-        setMessage('');
-
-        // The payload for the backend includes the final thresholds from currentQuery state
-        const finalQuery = { ...currentQuery }; 
+        setMessage("");
 
         try {
-            const data = await runWeatherQuery(finalQuery);
+            const data = await runWeatherQuery({ ...currentQuery, dayOfYear });
             setQueryResults(data);
-            setMessage('Query executed successfully! Results are now visible below.');
+            setMessage("Query executed successfully!");
         } catch (err) {
             console.error(err);
-            setMessage(`Error running query: ${err}`);
-            setQueryResults(null);
+            setMessage(`Error running query: ${err.message}`);
         } finally {
             setLoading(false);
         }
@@ -158,26 +219,23 @@ const QueryForm = () => {
 
     const handleSaveDashboard = async () => {
         if (!dashboardName.trim()) {
-            setMessage('Please enter a name for the dashboard before saving.');
+            setMessage("Please enter a name for the dashboard.");
             return;
         }
         if (currentQuery.variables.length === 0) {
-            setMessage('Select at least one variable before saving.');
+            setMessage("Select at least one variable before saving.");
             return;
         }
-        
-        // --- UPDATED VALIDATION LOGIC FOR SAVING ---
-        const lat = currentQuery.location?.lat;
-        const lon = currentQuery.location?.lon;
-        if (lat === null || lat === undefined || isNaN(lat) || lon === null || lon === undefined || isNaN(lon)) {
-             setMessage('Cannot save: Please enter valid coordinates before saving.');
-             return;
+
+        const { lat, lon } = currentQuery.location || {};
+        if (!lat || !lon || isNaN(lat) || isNaN(lon)) {
+            setMessage("Cannot save: Invalid coordinates.");
+            return;
         }
-        // --- END UPDATED VALIDATION LOGIC ---
 
         const dashboardData = {
             name: dashboardName.trim(),
-            location: 'Pin', 
+            location: "Pin",
             details: currentQuery.location,
             dayOfYear: currentQuery.dayOfYear,
             selectedVariables: currentQuery.variables,
@@ -187,8 +245,8 @@ const QueryForm = () => {
         try {
             setLoading(true);
             await createDashboard(dashboardData);
-            setDashboardName('');
-            await fetchSavedDashboards(); 
+            setDashboardName("");
+            await fetchSavedDashboards();
             setMessage(`Dashboard "${dashboardName.trim()}" saved successfully!`);
         } catch (err) {
             setMessage(`Failed to save dashboard: ${err}`);
@@ -196,112 +254,111 @@ const QueryForm = () => {
             setLoading(false);
         }
     };
-    
-    // Helper to check if a threshold exists for a variable
-    const getActiveThreshold = (key) => currentQuery.thresholds.find(t => t.variable === key);
+
+    const getActiveThreshold = (key) =>
+        currentQuery.thresholds.find((t) => t.variable === key);
 
     return (
-        <form onSubmit={handleSubmitQuery} className="bg-white p-6 rounded-xl shadow-2xl border border-gray-100">
-            <h2 className="text-3xl font-extrabold text-gray-900 mb-6 border-b pb-2">
-                New Weather Dashboard Query
-            </h2>
-            
-            {/* Location and Day */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <div className="col-span-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Location (Lat/Lon)</label>
-                    <p className="text-xs text-gray-500 mb-2">Historical data search is based on this geographic point.</p>
-                </div>
-                <input
-                    type="number"
-                    name="lat"
-                    placeholder="Latitude (e.g., 34.05)"
-                    // Defensive reading: use optional chaining and empty string as fallback
-                    value={currentQuery.location?.lat || ''} 
-                    onChange={handleInputChange}
-                    required
-                    step="0.0001"
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition"
-                />
-                <input
-                    type="number"
-                    name="lon"
-                    placeholder="Longitude (e.g., -118.24)"
-                    // Defensive reading
-                    value={currentQuery.location?.lon || ''} 
-                    onChange={handleInputChange}
-                    required
-                    step="0.0001"
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition"
-                />
-                <input
-                    type="number"
-                    name="dayOfYear"
-                    placeholder="Day of Year (1-366)"
-                    value={currentQuery.dayOfYear || 1}
-                    onChange={handleInputChange}
-                    required
-                    min="1"
-                    max="366"
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition"
-                />
-            </div>
+        <>
+            {/* FIX: Add this style block to override the search bar text color */}
+            <style>{`
+                .leaflet-geosearch-bar form input,
+                .geosearch.bar form input {
+                    color: black !important;
+                }
+                .leaflet-geosearch-bar form input::placeholder,
+                .geosearch.bar form input::placeholder {
+                    color: #333 !important;
+                }
+            `}</style>
+            <form
+                onSubmit={handleSubmitQuery}
+                className="bg-[#0B113A] border border-[#1E2A78] rounded-2xl p-6 text-gray-100"
+            >
+                <h2 className="text-2xl font-semibold text-cyan-400 mb-4">
+                    🌍 New Weather Dashboard Query
+                </h2>
 
-            {/* Variable Selection and Thresholds */}
-            <div className="mb-6 space-y-4">
-                <h3 className="text-xl font-semibold text-gray-800">Select Variables & Thresholds</h3>
-                <p className="text-sm text-gray-600">Optionally set a threshold to calculate the historical probability of exceeding it.</p>
-                
-                <div className="space-y-3">
-                    {NASA_VARIABLES.map(variable => (
-                        <div key={variable.key} className="p-4 border rounded-lg hover:bg-gray-50 transition">
-                            <div className="flex items-center justify-between">
-                                <label className="flex items-center space-x-3 cursor-pointer">
+                {/* Map Section */}
+                <div className="mb-6 ">
+                    <h3 className="text-lg font-semibold text-cyan-300 mb-2">📍 Select Location</h3>
+                    <p className="text-xs text-gray-400 mb-2">
+                        Click on the map or search to set coordinates.
+                    </p>
+                    <MapContainer
+                        // --- MODIFICATION ---
+                        center={[28.4089, 77.3178]} // Default to Faridabad
+                        zoom={11} // Zoom in on the city
+                        style={{ height: "300px", width: "100%", zIndex: 0 }}
+                    >
+                        <TileLayer
+                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                            attribution="© OpenStreetMap"
+                        />
+                        {currentQuery.location?.lat && currentQuery.location?.lon && (
+                            <Marker
+                                position={[currentQuery.location.lat, currentQuery.location.lon]}
+                                icon={customIcon}
+                            />
+                        )}
+                        <MapEvents setCoords={handleCoordsChange} />
+                    </MapContainer>
+                </div>
+
+                {/* Calendar */}
+                <div className="mb-6">
+                    <label className="block text-sm text-cyan-300 mb-1">📅 Select Date</label>
+                    <DatePicker
+                        selected={selectedDate}
+                        onChange={(date) => setSelectedDate(date)}
+                        dateFormat="MMMM d, yyyy"
+                        className="bg-[#060B28] border border-[#24318D] rounded-lg px-3 py-2 text-sm text-gray-200"
+                    />
+                </div>
+
+                {/* Variables & Thresholds */}
+                <div className="mb-6">
+                    <h3 className="text-lg font-semibold text-cyan-300 mb-2">Variables</h3>
+                    {NASA_VARIABLES.map((v) => (
+                        <div
+                            key={v.key}
+                            className="bg-[#0D1448] border border-[#1E2A78] rounded-lg p-3 mb-2"
+                        >
+                            <div className="flex justify-between items-center">
+                                <label className="flex items-center space-x-2 cursor-pointer">
                                     <input
                                         type="checkbox"
-                                        checked={currentQuery.variables.includes(variable.key)}
-                                        onChange={() => handleVariableToggle(variable.key)}
-                                        className="h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                        checked={currentQuery.variables.includes(v.key)}
+                                        onChange={() => handleVariableToggle(v.key)}
+                                        className="h-4 w-4 text-cyan-500"
                                     />
-                                    <span className="font-medium text-gray-700">
-                                        {variable.name} <span className="text-xs text-gray-500">({variable.unit})</span>
+                                    <span className="text-gray-200">
+                                        {v.name} <span className="text-xs text-gray-500">({v.unit})</span>
                                     </span>
                                 </label>
-                                {currentQuery.variables.includes(variable.key) && (
-                                    <span className={`px-2 py-0.5 text-xs rounded-full font-semibold ${getActiveThreshold(variable.key) ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                                        {getActiveThreshold(variable.key) ? `Threshold Set: ${getActiveThreshold(variable.key).value} ${getActiveThreshold(variable.key).unit}` : 'No Threshold'}
-                                    </span>
-                                )}
                             </div>
-
-                            {/* Threshold Input Area */}
-                            {currentQuery.variables.includes(variable.key) && (
-                                <div className="mt-3 pl-8 flex space-x-2 items-center">
+                            {currentQuery.variables.includes(v.key) && (
+                                <div className="mt-2 flex items-center space-x-2 pl-6">
                                     <input
                                         type="number"
-                                        placeholder={`Value in ${variable.unit.split('/')[0].trim()}`}
-                                        onChange={(e) => handleThresholdChange(variable.key, e.target.value)}
-                                        // Ensure the input field controls its own state for better UX
-                                        value={thresholdInput[variable.key]?.value || ''} 
-                                        step="any"
-                                        className="p-1.5 border border-gray-300 rounded-lg text-sm w-48 focus:ring-blue-500"
+                                        placeholder={`Value in ${v.unit.split("/")[0]}`}
+                                        value={thresholdInput[v.key]?.value || ""}
+                                        onChange={(e) => handleThresholdChange(v.key, e.target.value)}
+                                        className="bg-[#060B28] border border-[#24318D] rounded-lg px-2 py-1 text-sm text-gray-200"
                                     />
-                                    <span className="text-sm text-gray-500">{variable.unit.split('/')[0].trim()}</span>
-                                    
-                                    {!getActiveThreshold(variable.key) ? (
+                                    {!getActiveThreshold(v.key) ? (
                                         <button
                                             type="button"
-                                            onClick={() => handleAddThreshold(variable.key, variable.unit)}
-                                            className="ml-4 px-3 py-1 text-xs bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition"
-                                            disabled={!thresholdInput[variable.key]?.value}
+                                            onClick={() => handleAddThreshold(v.key, v.unit)}
+                                            className="bg-cyan-600 px-2 py-1 text-xs rounded"
                                         >
-                                            Add Threshold
+                                            Add
                                         </button>
                                     ) : (
                                         <button
                                             type="button"
-                                            onClick={() => handleRemoveThreshold(variable.key)}
-                                            className="ml-4 px-3 py-1 text-xs bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
+                                            onClick={() => handleRemoveThreshold(v.key)}
+                                            className="bg-red-600 px-2 py-1 text-xs rounded"
                                         >
                                             Remove
                                         </button>
@@ -311,50 +368,42 @@ const QueryForm = () => {
                         </div>
                     ))}
                 </div>
-            </div>
 
-            {/* Form Actions */}
-            <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-                <button
-                    type="submit"
-                    className="px-6 py-3 bg-green-600 text-white font-semibold rounded-xl shadow-lg hover:bg-green-700 transition disabled:bg-gray-400 flex items-center"
-                    disabled={loading || currentQuery.variables.length === 0}
-                >
-                    {loading ? (
-                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                    ) : 'Run NASA Query'}
-                </button>
-                
-                {/* Save Dashboard Section */}
-                <div className="flex items-center space-x-2">
-                    <input
-                        type="text"
-                        placeholder="Dashboard Name (to save)"
-                        value={dashboardName}
-                        onChange={(e) => setDashboardName(e.target.value)}
-                        className="p-2 border border-gray-300 rounded-lg text-sm w-48"
-                    />
+                {/* Actions */}
+                <div className="flex justify-between items-center">
                     <button
-                        type="button"
-                        onClick={handleSaveDashboard}
-                        disabled={loading || currentQuery.variables.length === 0 || !dashboardName.trim()}
-                        className="px-4 py-2 bg-purple-600 text-white font-semibold rounded-lg shadow-md hover:bg-purple-700 transition disabled:bg-gray-400 text-sm"
+                        type="submit"
+                        disabled={loading || currentQuery.variables.length === 0}
+                        className="bg-cyan-600 px-6 py-2 rounded-lg font-semibold text-white disabled:bg-gray-600"
                     >
-                        Save Config
+                        {loading ? "Running..." : "Run Query"}
                     </button>
+                    <div className="flex items-center space-x-2">
+                        <input
+                            type="text"
+                            placeholder="Dashboard Name"
+                            value={dashboardName}
+                            onChange={(e) => setDashboardName(e.target.value)}
+                            className="bg-[#060B28] border border-[#24318D] rounded-lg px-3 py-2 text-sm text-gray-200"
+                        />
+                        <button
+                            type="button"
+                            onClick={handleSaveDashboard}
+                            disabled={loading || !dashboardName.trim()}
+                            className="bg-purple-600 px-4 py-2 rounded-lg text-sm text-white disabled:bg-gray-600"
+                        >
+                            Save
+                        </button>
+                    </div>
                 </div>
-            </div>
 
-            {/* Message Area */}
-            {message && (
-                <p className={`mt-3 p-3 rounded-lg text-sm font-medium ${message.startsWith('Error') ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
-                    {message}
-                </p>
-            )}
-        </form>
+                {message && (
+                    <p className="mt-4 p-2 text-sm text-center bg-[#0D1448] rounded-lg text-cyan-300">
+                        {message}
+                    </p>
+                )}
+            </form>
+        </>
     );
 };
 

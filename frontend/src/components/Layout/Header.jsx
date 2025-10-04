@@ -14,9 +14,12 @@ const Header = () => {
     };
 
     return (
-        <header className="bg-gray-800 text-white shadow-lg sticky top-0 z-10">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
-                <Link to={isAuthenticated ? "/dashboard" : "/"} className="text-2xl font-bold tracking-wider hover:text-blue-300 transition">
+        <header 
+            // --- MODIFICATIONS FOR GLASSMORPHISM ---
+            className="sticky top-0 z-50 bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-20 bg-gray-900/30 border-b border-gray-100/10 shadow-lg"
+        >
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16 text-white">
+                <Link to={isAuthenticated ? "/dashboard" : "/"} className="text-2xl font-bold tracking-wider hover:text-cyan-300 transition-colors duration-300">
                     NASA Clima Cast
                 </Link>
                 <nav>
@@ -32,10 +35,10 @@ const Header = () => {
                         </div>
                     ) : (
                         <div className="space-x-4">
-                            <Link to="/login" className="px-3 py-1 text-sm rounded-lg hover:bg-gray-700 transition">
+                            <Link to="/login" className="px-3 py-1 text-sm rounded-lg hover:bg-gray-700/50 transition-colors duration-300">
                                 Sign In
                             </Link>
-                            <Link to="/register" className="px-3 py-1 bg-blue-600 text-sm rounded-lg hover:bg-blue-700 transition shadow-md">
+                            <Link to="/register" className="px-3 py-1 bg-cyan-600 text-sm rounded-lg hover:bg-cyan-700 transition shadow-md">
                                 Register
                             </Link>
                         </div>
