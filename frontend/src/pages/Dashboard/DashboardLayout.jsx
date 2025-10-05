@@ -97,7 +97,7 @@ const DashboardLayout = () => {
 
                 {/* Footer */}
                 <footer className="bg-[#0B113A] border-t border-[#1E2A78] py-4 text-center text-sm text-gray-400">
-                    © 2025 <span className="text-cyan-400 font-semibold">Celestial Weather</span> — Powered by NASA & GES DISC APIs
+                    © 2025 <span className="text-cyan-400 font-semibold"> Clima Cast</span> — Powered by NASA & GES DISC APIs
                 </footer>
             </div>
 
